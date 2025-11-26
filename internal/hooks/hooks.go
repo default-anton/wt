@@ -28,6 +28,7 @@ func Run(hooks []config.Hook, workDir string) error {
 
 		cmd := exec.Command("sh", "-c", hook.Run)
 		cmd.Dir = workDir
+		cmd.Env = os.Environ() // Inherit environment variables
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin

@@ -29,6 +29,7 @@ func Run(scriptPath, input, repoRoot string) (string, error) {
 	// Execute the script
 	cmd := exec.Command(scriptPath, input)
 	cmd.Dir = repoRoot
+	cmd.Env = os.Environ() // Inherit environment variables (including HOME for credential loading)
 	cmd.Stderr = os.Stderr
 
 	var stdout bytes.Buffer
