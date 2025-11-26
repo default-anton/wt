@@ -86,16 +86,17 @@ func SampleConfig() string {
 # Base branch for new worktrees (default: main)
 base_branch = "main"
 
-# Directory for worktrees (default: ./worktrees)
-worktree_dir = "./worktrees"
+# Directory for worktrees (default: .worktrees)
+worktree_dir = ".worktrees"
 
 # Preprocessing script (receives input, outputs branch name)
 # Script can be any executable - bash, python, etc.
 # preprocess_script = ".wt/preprocess.sh"
 
 # Files/directories to copy (gitignore-like patterns)
+# Supports ** for recursive matching (e.g., **/node_modules for monorepos)
 # copy_patterns = [
-#   "node_modules",
+#   "**/node_modules",
 #   ".env*",
 #   "vendor",
 #   "!.env.example",
