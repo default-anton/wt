@@ -3,12 +3,16 @@ package git
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+// ErrDirtyWorktree indicates the worktree contains modified or untracked files.
+var ErrDirtyWorktree = errors.New("worktree contains modified or untracked files")
 
 type Worktree struct {
 	Path   string
@@ -115,8 +119,21 @@ func RemoveWorktree(path string, force bool) error {
 
 	cmd := exec.Command("git", args...)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "contains modified or untracked files") {
+			return ErrDirtyWorktree
+		}
+		// Print stderr for other errors
+		os.Stderr.WriteString(stderrStr)
+		return err
+	}
+	return nil
 }
 
 // GetWorktreeDir returns the directory where worktrees should be created.

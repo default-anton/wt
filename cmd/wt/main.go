@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -228,7 +229,7 @@ func init() {
 func runRemove(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		// Direct removal
-		return git.RemoveWorktree(args[0], removeForce)
+		return removeWorktreeWithConfirm(args[0], removeForce)
 	}
 
 	// Interactive selection
@@ -269,12 +270,39 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	for _, path := range selected {
 		fmt.Printf("Removing worktree: %s\n", path)
-		if err := git.RemoveWorktree(path, removeForce); err != nil {
+		if err := removeWorktreeWithConfirm(path, removeForce); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// removeWorktreeWithConfirm attempts to remove a worktree and prompts for
+// confirmation if it contains modified or untracked files.
+func removeWorktreeWithConfirm(path string, force bool) error {
+	err := git.RemoveWorktree(path, force)
+	if err == nil {
+		return nil
+	}
+
+	if !errors.Is(err, git.ErrDirtyWorktree) {
+		return err
+	}
+
+	// Worktree has uncommitted changes, ask user if they want to force remove
+	fmt.Printf("Worktree '%s' contains modified or untracked files.\n", path)
+	confirmed, confirmErr := tui.Confirm("Force remove anyway?")
+	if confirmErr != nil {
+		return confirmErr
+	}
+
+	if !confirmed {
+		fmt.Println("Skipped.")
+		return nil
+	}
+
+	return git.RemoveWorktree(path, true)
 }
 
 // ls command

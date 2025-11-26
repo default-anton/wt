@@ -255,3 +255,98 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// confirmModel is a simple yes/no confirmation prompt.
+type confirmModel struct {
+	message  string
+	selected bool // true = Yes, false = No
+	quitting bool
+	result   bool
+}
+
+func newConfirmModel(message string) confirmModel {
+	return confirmModel{
+		message:  message,
+		selected: false, // Default to No
+	}
+}
+
+func (m confirmModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.quitting = true
+			m.result = false
+			return m, tea.Quit
+		case "enter":
+			m.quitting = true
+			m.result = m.selected
+			return m, tea.Quit
+		case "left", "h":
+			m.selected = true
+		case "right", "l":
+			m.selected = false
+		case "y", "Y":
+			m.quitting = true
+			m.result = true
+			return m, tea.Quit
+		case "n", "N":
+			m.quitting = true
+			m.result = false
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m confirmModel) View() string {
+	if m.quitting {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(m.message)
+	b.WriteString(" ")
+
+	yes := "Yes"
+	no := "No"
+
+	if m.selected {
+		yes = selectedStyle.Render("[Yes]")
+		no = dimStyle.Render(" No ")
+	} else {
+		yes = dimStyle.Render(" Yes ")
+		no = selectedStyle.Render("[No]")
+	}
+
+	b.WriteString(yes)
+	b.WriteString(" / ")
+	b.WriteString(no)
+	b.WriteString(dimStyle.Render("  (y/n, ←/→ to select, enter to confirm)"))
+
+	return b.String()
+}
+
+// Confirm shows a yes/no confirmation prompt and returns true if the user selects Yes.
+func Confirm(message string) (bool, error) {
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return false, fmt.Errorf("failed to open /dev/tty: %w", err)
+	}
+	defer tty.Close()
+
+	m := newConfirmModel(message)
+	p := tea.NewProgram(m, tea.WithInput(tty), tea.WithOutput(os.Stderr))
+	finalModel, err := p.Run()
+	if err != nil {
+		return false, err
+	}
+
+	result := finalModel.(confirmModel)
+	return result.result, nil
+}
