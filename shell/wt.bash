@@ -4,9 +4,9 @@
 # Or use: eval "$(wt shell-init bash)"
 
 wt() {
-  if [[ "$1" == "switch" ]] && [[ ! " $* " =~ " --tmux " ]]; then
+  if [[ "$1" == "cd" ]] && [[ ! " $* " =~ " --tmux " ]]; then
     local result
-    result=$(command wt switch --print-path "${@:2}")
+    result=$(command wt cd --print-path "${@:2}")
     if [[ -n "$result" && -d "$result" ]]; then
       cd "$result"
     fi

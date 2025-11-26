@@ -4,8 +4,8 @@
 # Or use: wt shell-init fish | source
 
 function wt
-  if test "$argv[1]" = "switch"; and not contains -- --tmux $argv
-    set -l result (command wt switch --print-path $argv[2..])
+  if test "$argv[1]" = "cd"; and not contains -- --tmux $argv
+    set -l result (command wt cd --print-path $argv[2..])
     if test -n "$result"; and test -d "$result"
       cd $result
     end
