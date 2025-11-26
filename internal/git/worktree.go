@@ -100,7 +100,7 @@ func CreateWorktree(branch, path, baseBranch string) error {
 		cmd = exec.Command("git", "worktree", "add", "-b", branch, path, baseBranch)
 	}
 
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
