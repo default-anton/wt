@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -192,8 +193,16 @@ func Select(items []Item) (string, error) {
 		return "", fmt.Errorf("no items to select")
 	}
 
+	// Open /dev/tty directly to ensure TUI works even when stdout is captured
+	// (e.g., in shell command substitution like result=$(wt cd --print-path))
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
+	}
+	defer tty.Close()
+
 	m := newSelectorModel(items, false)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithInput(tty), tea.WithOutput(os.Stderr))
 	finalModel, err := p.Run()
 	if err != nil {
 		return "", err
@@ -212,8 +221,15 @@ func MultiSelect(items []Item) ([]string, error) {
 		return nil, fmt.Errorf("no items to select")
 	}
 
+	// Open /dev/tty directly to ensure TUI works even when stdout is captured
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open /dev/tty: %w", err)
+	}
+	defer tty.Close()
+
 	m := newSelectorModel(items, true)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithInput(tty), tea.WithOutput(os.Stderr))
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, err
