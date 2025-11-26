@@ -24,39 +24,15 @@ Download the latest release from [GitHub Releases](https://github.com/default-an
 go install github.com/default-anton/wt/cmd/wt@latest
 ```
 
-## Shell Integration
+## Shell Setup
 
-For `wt cd` and `wt add` to automatically change your directory, add shell integration:
+For `wt cd` and `wt add` to automatically change your directory, add shell integration. You can also enable tab completion for commands and flags.
 
 ### Bash
 
 ```bash
 # Add to ~/.bashrc
 eval "$(wt shell-init bash)"
-```
-
-### Zsh
-
-```bash
-# Add to ~/.zshrc
-eval "$(wt shell-init zsh)"
-```
-
-### Fish
-
-```fish
-# Add to ~/.config/fish/config.fish
-wt shell-init fish | source
-```
-
-## Shell Completion
-
-Enable tab completion for commands and flags:
-
-### Bash
-
-```bash
-# Add to ~/.bashrc
 eval "$(wt completion bash)"
 ```
 
@@ -64,6 +40,7 @@ eval "$(wt completion bash)"
 
 ```bash
 # Add to ~/.zshrc
+eval "$(wt shell-init zsh)"
 eval "$(wt completion zsh)"
 ```
 
@@ -71,6 +48,7 @@ eval "$(wt completion zsh)"
 
 ```fish
 # Add to ~/.config/fish/config.fish
+wt shell-init fish | source
 wt completion fish | source
 ```
 
@@ -126,11 +104,7 @@ wt init
 
 ## Configuration
 
-Create a `.wt.toml` file in your repository root and add the worktree directory to `.gitignore`:
-
-```bash
-echo ".worktrees" >> .gitignore
-```
+Run `wt init` to create a `.wt.toml` configuration file in your repository root. This command also adds the worktree directory to `.gitignore`.
 
 Example configuration:
 
