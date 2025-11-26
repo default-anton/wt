@@ -43,3 +43,17 @@ release:
   github:
     owner: default-anton
     name: wt
+
+brews:
+  - repository:
+      owner: default-anton
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/default-anton/wt"
+    description: "Git worktree manager"
+    license: "MIT"
+    install: |
+      bin.install "wt"
+      bash_completion.install "shell/wt.bash" => "wt"
+      zsh_completion.install "shell/wt.zsh" => "_wt"
+      fish_completion.install "shell/wt.fish" => "wt.fish"
