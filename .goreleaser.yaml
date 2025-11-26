@@ -54,6 +54,8 @@ brews:
     license: "MIT"
     install: |
       bin.install "wt"
-      bash_completion.install "shell/wt.bash" => "wt"
-      zsh_completion.install "shell/wt.zsh" => "_wt"
-      fish_completion.install "shell/wt.fish" => "wt.fish"
+
+      # Install shell-init (wrapper function) + completions combined
+      (bash_completion/"wt").write Utils.safe_popen_read(bin/"wt", "shell-init", "bash") + "\n" + Utils.safe_popen_read(bin/"wt", "completion", "bash")
+      (zsh_completion/"_wt").write Utils.safe_popen_read(bin/"wt", "shell-init", "zsh") + "\n" + Utils.safe_popen_read(bin/"wt", "completion", "zsh")
+      (fish_completion/"wt.fish").write Utils.safe_popen_read(bin/"wt", "shell-init", "fish") + "\n" + Utils.safe_popen_read(bin/"wt", "completion", "fish")

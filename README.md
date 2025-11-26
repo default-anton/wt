@@ -34,14 +34,14 @@ go install github.com/default-anton/wt/cmd/wt@latest
 
 For `wt cd` and `wt add` to automatically change your directory, add shell integration.
 
-> **Note:** If installed via Homebrew, shell completions are already set up. You only need the `shell-init` line below.
+> **Note:** If installed via Homebrew, shell integration and completions are set up automatically. You can skip this section.
 
 ### Bash
 
 ```bash
 # Add to ~/.bashrc
 eval "$(wt shell-init bash)"
-eval "$(wt completion bash)"  # Skip if installed via Homebrew
+eval "$(wt completion bash)"
 ```
 
 ### Zsh
@@ -49,7 +49,7 @@ eval "$(wt completion bash)"  # Skip if installed via Homebrew
 ```bash
 # Add to ~/.zshrc
 eval "$(wt shell-init zsh)"
-eval "$(wt completion zsh)"  # Skip if installed via Homebrew
+eval "$(wt completion zsh)"
 ```
 
 ### Fish
@@ -57,7 +57,7 @@ eval "$(wt completion zsh)"  # Skip if installed via Homebrew
 ```fish
 # Add to ~/.config/fish/config.fish
 wt shell-init fish | source
-wt completion fish | source  # Skip if installed via Homebrew
+wt completion fish | source
 ```
 
 ## Usage
