@@ -14,6 +14,12 @@ A fast CLI tool for managing git worktrees with fuzzy selection.
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install default-anton/tap/wt
+```
+
 ### From releases
 
 Download the latest release from [GitHub Releases](https://github.com/default-anton/wt/releases).
