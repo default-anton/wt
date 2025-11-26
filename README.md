@@ -5,7 +5,7 @@ A fast CLI tool for managing git worktrees with fuzzy selection.
 ## Features
 
 - **Quick worktree creation** with optional branch name preprocessing
-- **Interactive fuzzy finder** for switching between worktrees
+- **Interactive fuzzy finder** for navigating between worktrees
 - **Multi-select deletion** of worktrees
 - **File copying** with gitignore-style patterns
 - **Post-creation hooks** for automated setup
@@ -26,7 +26,7 @@ go install github.com/default-anton/wt/cmd/wt@latest
 
 ## Shell Integration
 
-For `wt switch` and `wt add` to automatically change your directory, add shell integration:
+For `wt cd` and `wt add` to automatically change your directory, add shell integration:
 
 ### Bash
 
@@ -49,6 +49,31 @@ eval "$(wt shell-init zsh)"
 wt shell-init fish | source
 ```
 
+## Shell Completion
+
+Enable tab completion for commands and flags:
+
+### Bash
+
+```bash
+# Add to ~/.bashrc
+eval "$(wt completion bash)"
+```
+
+### Zsh
+
+```bash
+# Add to ~/.zshrc
+eval "$(wt completion zsh)"
+```
+
+### Fish
+
+```fish
+# Add to ~/.config/fish/config.fish
+wt completion fish | source
+```
+
 ## Usage
 
 ### Create a worktree
@@ -58,39 +83,39 @@ wt shell-init fish | source
 wt add my-feature
 
 # With tmux (opens in new pane)
-wt add my-feature --tmux
+wt add my-feature -t  # or --tmux
 
 # With custom base branch
 wt add my-feature --base develop
 ```
 
-### Switch between worktrees
+### Go to a worktree
 
 ```bash
 # Interactive fuzzy finder
-wt switch
+wt cd
 
 # With tmux
-wt switch --tmux
+wt cd -t  # or --tmux
 ```
 
 ### Remove worktrees
 
 ```bash
 # Interactive multi-select
-wt remove
+wt rm
 
 # Direct removal
-wt remove ./worktrees/my-feature
+wt rm .worktrees/my-feature
 
 # Force removal
-wt remove -f ./worktrees/my-feature
+wt rm -f .worktrees/my-feature
 ```
 
 ### List worktrees
 
 ```bash
-wt list
+wt ls
 ```
 
 ### Initialize config
@@ -101,21 +126,28 @@ wt init
 
 ## Configuration
 
-Create a `.wt.toml` file in your repository root:
+Create a `.wt.toml` file in your repository root and add the worktree directory to `.gitignore`:
+
+```bash
+echo ".worktrees" >> .gitignore
+```
+
+Example configuration:
 
 ```toml
 # Base branch for new worktrees (default: main)
 base_branch = "main"
 
-# Directory for worktrees (default: ./worktrees)
-worktree_dir = "./worktrees"
+# Directory for worktrees (default: .worktrees)
+worktree_dir = ".worktrees"
 
 # Preprocessing script (receives input, outputs branch name)
 preprocess_script = ".wt/preprocess.sh"
 
 # Files/directories to copy (gitignore-like patterns)
+# Supports ** for recursive matching (e.g., **/node_modules for monorepos)
 copy_patterns = [
-  "node_modules",
+  "**/node_modules",
   ".env*",
   "vendor",
   "!.env.example",
