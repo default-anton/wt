@@ -87,14 +87,28 @@ func findMatches(baseDir, pattern string) ([]string, error) {
 }
 
 func copyPath(src, dest string) error {
+	// Skip if destination already exists (may have been copied as part of a parent directory)
+	if _, err := os.Lstat(dest); err == nil {
+		return nil
+	}
+
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 
 	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		return err
+	parentDir := filepath.Dir(dest)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		// MkdirAll can fail if a path component is a symlink (common in node_modules).
+		// Check if the parent is still accessible as a directory (symlink to valid dir).
+		if parentInfo, statErr := os.Stat(parentDir); statErr == nil && parentInfo.IsDir() {
+			// Parent is accessible as a directory via symlink, proceed
+		} else {
+			// Parent is inaccessible (broken symlink or other issue), skip this copy.
+			// This happens when a symlink points to a not-yet-copied or external location.
+			return nil
+		}
 	}
 
 	if info.IsDir() {
