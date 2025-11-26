@@ -2,7 +2,6 @@ package copy
 
 import (
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -105,56 +104,45 @@ func copyPath(src, dest string) error {
 }
 
 func copyDir(src, dest string) error {
-	// Use copy-on-write on macOS (APFS)
-	if runtime.GOOS == "darwin" {
-		cmd := exec.Command("cp", "-cRp", src, dest)
-		if err := cmd.Run(); err == nil {
+	switch runtime.GOOS {
+	case "darwin":
+		// Try copy-on-write on macOS (APFS)
+		if err := exec.Command("cp", "-cRp", src, dest).Run(); err == nil {
 			return nil
 		}
 		// Fall back to regular copy if -c fails
+		return exec.Command("cp", "-Rp", src, dest).Run()
+	case "linux":
+		// Try copy-on-write on Btrfs/XFS
+		if err := exec.Command("cp", "-Rp", "--reflink=auto", src, dest).Run(); err == nil {
+			return nil
+		}
+		// Fall back to regular copy if --reflink fails
+		return exec.Command("cp", "-Rp", src, dest).Run()
+	default:
+		// Other OSes: just use cp
+		return exec.Command("cp", "-Rp", src, dest).Run()
 	}
-
-	// Regular copy for Linux and fallback
-	return filepath.Walk(src, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		destPath := filepath.Join(dest, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
-		}
-		return copyFile(path, destPath, info.Mode())
-	})
 }
 
 func copyFile(src, dest string, mode fs.FileMode) error {
-	// Try copy-on-write on macOS first
-	if runtime.GOOS == "darwin" {
-		cmd := exec.Command("cp", "-cp", src, dest)
-		if err := cmd.Run(); err == nil {
+	switch runtime.GOOS {
+	case "darwin":
+		// Try copy-on-write on macOS (APFS)
+		if err := exec.Command("cp", "-cp", src, dest).Run(); err == nil {
 			return nil
 		}
+		// Fall back to regular copy if -c fails
+		return exec.Command("cp", "-p", src, dest).Run()
+	case "linux":
+		// Try copy-on-write on Btrfs/XFS
+		if err := exec.Command("cp", "-p", "--reflink=auto", src, dest).Run(); err == nil {
+			return nil
+		}
+		// Fall back to regular copy if --reflink fails
+		return exec.Command("cp", "-p", src, dest).Run()
+	default:
+		// Other OSes: just use cp
+		return exec.Command("cp", "-p", src, dest).Run()
 	}
-
-	// Regular copy
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, srcFile)
-	return err
 }
