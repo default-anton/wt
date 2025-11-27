@@ -80,7 +80,7 @@ func (m selectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.filtered)-1 {
 				m.cursor++
 			}
-		case "tab", " ":
+		case "tab":
 			if m.multiSelect && len(m.filtered) > 0 {
 				idx := m.findOriginalIndex(m.filtered[m.cursor])
 				m.checked[idx] = !m.checked[idx]
@@ -179,7 +179,7 @@ func (m selectorModel) View() string {
 	}
 
 	if m.multiSelect {
-		b.WriteString(dimStyle.Render("\n\nTAB/SPACE to select, ENTER to confirm, ESC to cancel"))
+		b.WriteString(dimStyle.Render("\n\nTAB to select, ENTER to confirm, ESC to cancel"))
 	} else {
 		b.WriteString(dimStyle.Render("\n\nENTER to select, ESC to cancel"))
 	}
