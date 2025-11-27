@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -51,8 +52,13 @@ func CopyFiles(patterns []string, srcDir, destDir string) error {
 		}
 	}
 
+	// Filter out paths that are descendants of other matched paths.
+	// For example, if both "node_modules" and "node_modules/foo/node_modules" match,
+	// we only need to copy "node_modules" since it includes all nested directories.
+	paths := filterDescendants(matches, srcDir)
+
 	// Copy matched files
-	for relPath := range matches {
+	for _, relPath := range paths {
 		srcPath := filepath.Join(srcDir, relPath)
 		destPath := filepath.Join(destDir, relPath)
 
@@ -66,6 +72,42 @@ func CopyFiles(patterns []string, srcDir, destDir string) error {
 	}
 
 	return nil
+}
+
+// filterDescendants removes paths that are descendants of other paths in the set.
+// This prevents redundant copying when a parent directory is already being copied.
+// Only filters directory descendants; files are always kept.
+func filterDescendants(matches map[string]bool, baseDir string) []string {
+	paths := make([]string, 0, len(matches))
+	for p := range matches {
+		paths = append(paths, p)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		return len(paths[i]) < len(paths[j])
+	})
+
+	var kept []string
+	keptDirs := make(map[string]bool)
+
+	for _, p := range paths {
+		isDescendant := false
+		for dir := range keptDirs {
+			if strings.HasPrefix(p, dir+string(filepath.Separator)) {
+				isDescendant = true
+				break
+			}
+		}
+
+		if !isDescendant {
+			kept = append(kept, p)
+			fullPath := filepath.Join(baseDir, p)
+			if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
+				keptDirs[p] = true
+			}
+		}
+	}
+
+	return kept
 }
 
 func findMatches(baseDir, pattern string) ([]string, error) {
@@ -137,45 +179,57 @@ func copyDir(src, dest string) error {
 			return nil
 		}
 		// Fall back to regular copy if -c fails
-		return exec.Command("cp", "-Rp", src, dest).Run()
+		return runWithOutput("cp", "-Rp", src, dest)
 	case "linux":
 		// Try copy-on-write on Btrfs/XFS
 		if err := exec.Command("cp", "-Rp", "--reflink=auto", src, dest).Run(); err == nil {
 			return nil
 		}
 		// Fall back to regular copy if --reflink fails
-		return exec.Command("cp", "-Rp", src, dest).Run()
+		return runWithOutput("cp", "-Rp", src, dest)
 	default:
 		// Other OSes: just use cp
-		return exec.Command("cp", "-Rp", src, dest).Run()
+		return runWithOutput("cp", "-Rp", src, dest)
 	}
 }
 
-// mergeDirContents copies contents of src directory into existing dest directory.
-// Uses "src/." syntax to copy contents rather than the directory itself.
+// runWithOutput runs a command and returns an error that includes stderr output
+func runWithOutput(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, string(output))
+	}
+	return nil
+}
+
+// mergeDirContents copies contents of src directory into existing dest directory,
+// skipping files that already exist in dest.
 func mergeDirContents(src, dest string) error {
 	// Use "src/." to copy contents of src into dest (POSIX standard)
 	srcContents := src + string(filepath.Separator) + "."
 
-	switch runtime.GOOS {
-	case "darwin":
-		// Try copy-on-write on macOS (APFS)
-		if err := exec.Command("cp", "-cRp", srcContents, dest).Run(); err == nil {
+	// Use cp -n (no-clobber) to skip existing files.
+	// On macOS, cp -n returns exit code 1 when it skips files, even though
+	// the operation succeeded. We treat exit code 1 with empty stderr as success.
+	cmd := exec.Command("cp", "-Rpn", srcContents, dest)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outStr := string(output)
+		// Exit code 1 with empty output means files were skipped (expected on macOS)
+		if len(outStr) == 0 {
 			return nil
 		}
-		// Fall back to regular copy if -c fails
-		return exec.Command("cp", "-Rp", srcContents, dest).Run()
-	case "linux":
-		// Try copy-on-write on Btrfs/XFS
-		if err := exec.Command("cp", "-Rp", "--reflink=auto", srcContents, dest).Run(); err == nil {
-			return nil
+		// Check for actual error messages vs benign "not overwritten" messages
+		if strings.Contains(outStr, "Permission denied") ||
+			strings.Contains(outStr, "No such file") ||
+			strings.Contains(outStr, "No space") ||
+			strings.Contains(outStr, "Read-only") {
+			return fmt.Errorf("%w: %s", err, outStr)
 		}
-		// Fall back to regular copy if --reflink fails
-		return exec.Command("cp", "-Rp", srcContents, dest).Run()
-	default:
-		// Other OSes: just use cp
-		return exec.Command("cp", "-Rp", srcContents, dest).Run()
+		return nil
 	}
+	return nil
 }
 
 func copyFile(src, dest string, mode fs.FileMode) error {
@@ -186,16 +240,16 @@ func copyFile(src, dest string, mode fs.FileMode) error {
 			return nil
 		}
 		// Fall back to regular copy if -c fails
-		return exec.Command("cp", "-p", src, dest).Run()
+		return runWithOutput("cp", "-p", src, dest)
 	case "linux":
 		// Try copy-on-write on Btrfs/XFS
 		if err := exec.Command("cp", "-p", "--reflink=auto", src, dest).Run(); err == nil {
 			return nil
 		}
 		// Fall back to regular copy if --reflink fails
-		return exec.Command("cp", "-p", src, dest).Run()
+		return runWithOutput("cp", "-p", src, dest)
 	default:
 		// Other OSes: just use cp
-		return exec.Command("cp", "-p", src, dest).Run()
+		return runWithOutput("cp", "-p", src, dest)
 	}
 }
