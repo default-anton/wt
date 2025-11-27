@@ -7,14 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
 
-var (
-	selectedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
-	normalStyle     = lipgloss.NewStyle()
-	cursorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	dimStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	"github.com/default-anton/wt/internal/styles"
 )
 
 type Item struct {
@@ -151,37 +145,37 @@ func (m selectorModel) View() string {
 	for i, item := range m.filtered {
 		cursor := "  "
 		if i == m.cursor {
-			cursor = cursorStyle.Render("> ")
+			cursor = styles.CursorStyle.Render("> ")
 		}
 
 		check := ""
 		if m.multiSelect {
 			originalIdx := m.findOriginalIndex(item)
 			if m.checked[originalIdx] {
-				check = selectedStyle.Render("[x] ")
+				check = styles.BranchStyle.Render("[x] ")
 			} else {
-				check = dimStyle.Render("[ ] ")
+				check = styles.DimStyle.Render("[ ] ")
 			}
 		}
 
 		label := item.Label
 		if i == m.cursor {
-			label = selectedStyle.Render(label)
+			label = styles.BranchStyle.Render(label)
 		} else {
-			label = normalStyle.Render(label)
+			label = styles.NormalStyle.Render(label)
 		}
 
 		b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, check, label))
 	}
 
 	if len(m.filtered) == 0 {
-		b.WriteString(dimStyle.Render("  No matches"))
+		b.WriteString(styles.DimStyle.Render("  No matches"))
 	}
 
 	if m.multiSelect {
-		b.WriteString(dimStyle.Render("\n\nTAB to select, ENTER to confirm, ESC to cancel"))
+		b.WriteString(styles.DimStyle.Render("\n\nTAB to select, ENTER to confirm, ESC to cancel"))
 	} else {
-		b.WriteString(dimStyle.Render("\n\nENTER to select, ESC to cancel"))
+		b.WriteString(styles.DimStyle.Render("\n\nENTER to select, ESC to cancel"))
 	}
 
 	return b.String()
@@ -195,14 +189,18 @@ func Select(items []Item) (string, error) {
 
 	// Open /dev/tty directly to ensure TUI works even when stdout is captured
 	// (e.g., in shell command substitution like result=$(wt cd --print-path))
-	tty, err := os.Open("/dev/tty")
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return "", fmt.Errorf("failed to open /dev/tty: %w", err)
 	}
 	defer tty.Close()
 
 	m := newSelectorModel(items, false)
-	p := tea.NewProgram(m, tea.WithInput(tty), tea.WithOutput(os.Stderr))
+	p := tea.NewProgram(
+		m,
+		tea.WithInput(tty),
+		tea.WithOutput(tty),
+	)
 	finalModel, err := p.Run()
 	if err != nil {
 		return "", err
@@ -222,14 +220,18 @@ func MultiSelect(items []Item) ([]string, error) {
 	}
 
 	// Open /dev/tty directly to ensure TUI works even when stdout is captured
-	tty, err := os.Open("/dev/tty")
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open /dev/tty: %w", err)
 	}
 	defer tty.Close()
 
 	m := newSelectorModel(items, true)
-	p := tea.NewProgram(m, tea.WithInput(tty), tea.WithOutput(os.Stderr))
+	p := tea.NewProgram(
+		m,
+		tea.WithInput(tty),
+		tea.WithOutput(tty),
+	)
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, err
@@ -259,7 +261,7 @@ func max(a, b int) int {
 // confirmModel is a simple yes/no confirmation prompt.
 type confirmModel struct {
 	message  string
-	selected bool // true = Yes, false = No
+	selected bool
 	quitting bool
 	result   bool
 }
@@ -267,7 +269,7 @@ type confirmModel struct {
 func newConfirmModel(message string) confirmModel {
 	return confirmModel{
 		message:  message,
-		selected: false, // Default to No
+		selected: false,
 	}
 }
 
@@ -317,31 +319,35 @@ func (m confirmModel) View() string {
 	no := "No"
 
 	if m.selected {
-		yes = selectedStyle.Render("[Yes]")
-		no = dimStyle.Render(" No ")
+		yes = styles.BranchStyle.Render("[Yes]")
+		no = styles.DimStyle.Render(" No ")
 	} else {
-		yes = dimStyle.Render(" Yes ")
-		no = selectedStyle.Render("[No]")
+		yes = styles.DimStyle.Render(" Yes ")
+		no = styles.BranchStyle.Render("[No]")
 	}
 
 	b.WriteString(yes)
 	b.WriteString(" / ")
 	b.WriteString(no)
-	b.WriteString(dimStyle.Render("  (y/n, ←/→ to select, enter to confirm)"))
+	b.WriteString(styles.DimStyle.Render("  (y/n, ←/→ to select, enter to confirm)"))
 
 	return b.String()
 }
 
 // Confirm shows a yes/no confirmation prompt and returns true if the user selects Yes.
 func Confirm(message string) (bool, error) {
-	tty, err := os.Open("/dev/tty")
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return false, fmt.Errorf("failed to open /dev/tty: %w", err)
 	}
 	defer tty.Close()
 
 	m := newConfirmModel(message)
-	p := tea.NewProgram(m, tea.WithInput(tty), tea.WithOutput(os.Stderr))
+	p := tea.NewProgram(
+		m,
+		tea.WithInput(tty),
+		tea.WithOutput(tty),
+	)
 	finalModel, err := p.Run()
 	if err != nil {
 		return false, err

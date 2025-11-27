@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/default-anton/wt/internal/git"
 	"github.com/default-anton/wt/internal/hooks"
 	"github.com/default-anton/wt/internal/preprocess"
+	"github.com/default-anton/wt/internal/styles"
 	"github.com/default-anton/wt/internal/tui"
 )
 
@@ -34,7 +36,6 @@ var rootCmd = &cobra.Command{
 	Version: version,
 }
 
-// add command
 var addCmd = &cobra.Command{
 	Use:   "add <input>",
 	Short: "Create a new worktree",
@@ -78,7 +79,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Get branch name (through preprocessing if configured)
 	branch, err := preprocess.Run(cfg.PreprocessScript, input, repoRoot)
 	if err != nil {
 		return err
@@ -86,13 +86,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Branch name: %s\n", branch)
 
-	// Determine base branch
 	baseBranch := cfg.BaseBranch
 	if addBase != "" {
 		baseBranch = addBase
 	}
 
-	// Create worktree path
 	worktreeDir, err := git.GetWorktreeDir(cfg.WorktreeDir)
 	if err != nil {
 		return err
@@ -101,7 +99,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	dirName := git.SanitizeBranchName(branch)
 	worktreePath := filepath.Join(worktreeDir, dirName)
 
-	// Create worktree
 	local, remote := git.BranchExists(branch)
 	if local || remote {
 		fmt.Fprintf(os.Stderr, "Using existing branch: %s\n", branch)
@@ -113,7 +110,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Copy files
 	if len(cfg.CopyPatterns) > 0 {
 		fmt.Fprintln(os.Stderr, "Copying files...")
 		if err := copy.CopyFiles(cfg.CopyPatterns, repoRoot, worktreePath); err != nil {
@@ -121,7 +117,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Run post-creation hooks
 	if len(cfg.PostHooks) > 0 {
 		fmt.Fprintln(os.Stderr, "Running post-creation hooks...")
 		if err := hooks.Run(cfg.PostHooks, worktreePath); err != nil {
@@ -129,7 +124,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Handle output
 	if addTmux {
 		return openTmuxPane(worktreePath)
 	}
@@ -144,7 +138,6 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// cd command
 var cdCmd = &cobra.Command{
 	Use:   "cd",
 	Short: "Go to a worktree",
@@ -211,7 +204,6 @@ func runCd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// rm command
 var removeCmd = &cobra.Command{
 	Use:     "rm [path]",
 	Aliases: []string{"remove"},
@@ -228,7 +220,6 @@ func init() {
 
 func runRemove(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
-		// Direct removal
 		return removeWorktreeWithConfirm(args[0], removeForce)
 	}
 
@@ -290,7 +281,6 @@ func removeWorktreeWithConfirm(path string, force bool) error {
 		return err
 	}
 
-	// Worktree has uncommitted changes, ask user if they want to force remove
 	fmt.Printf("Worktree '%s' contains modified or untracked files.\n", path)
 	confirmed, confirmErr := tui.Confirm("Force remove anyway?")
 	if confirmErr != nil {
@@ -305,7 +295,6 @@ func removeWorktreeWithConfirm(path string, force bool) error {
 	return git.RemoveWorktree(path, true)
 }
 
-// ls command
 var lsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List all worktrees",
@@ -318,18 +307,55 @@ func runLs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	for _, wt := range worktrees {
-		main := ""
+	homeDir, _ := os.UserHomeDir()
+
+	// Group worktrees by parent directory
+	groups := make(map[string][]git.Worktree)
+	var mainWorktree *git.Worktree
+
+	for i := range worktrees {
+		wt := &worktrees[i]
 		if wt.IsMain {
-			main = " (main)"
+			mainWorktree = wt
+		} else {
+			parentDir := filepath.Dir(wt.Path)
+			groups[parentDir] = append(groups[parentDir], *wt)
 		}
-		fmt.Printf("%s %s%s\n", wt.Path, wt.Branch, main)
+	}
+
+	// Print main worktree first
+	if mainWorktree != nil {
+		path := shortenHome(mainWorktree.Path, homeDir)
+		branch := styles.BranchStyle.Render(mainWorktree.Branch)
+		badge := styles.CursorStyle.Render("(main)")
+		fmt.Printf("%s %s %s\n", path, branch, badge)
+	}
+
+	// Print grouped worktrees
+	for parentDir, wts := range groups {
+		fmt.Println()
+		fmt.Println(styles.DimStyle.Render(shortenHome(parentDir, homeDir) + "/"))
+		for _, wt := range wts {
+			dirName := filepath.Base(wt.Path)
+			if dirName == wt.Branch {
+				fmt.Printf("  %s\n", styles.BranchStyle.Render(dirName))
+			} else {
+				branch := styles.BranchStyle.Render(wt.Branch)
+				fmt.Printf("  %s %s\n", dirName, branch)
+			}
+		}
 	}
 
 	return nil
 }
 
-// init command
+func shortenHome(path, homeDir string) string {
+	if homeDir != "" && strings.HasPrefix(path, homeDir) {
+		return "~" + path[len(homeDir):]
+	}
+	return path
+}
+
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create a sample .wt.toml config file",
@@ -351,7 +377,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// shell-init command
 var shellInitCmd = &cobra.Command{
 	Use:   "shell-init <shell>",
 	Short: "Print shell integration code",
@@ -376,7 +401,6 @@ func runShellInit(cmd *cobra.Command, args []string) error {
 }
 
 func openTmuxPane(path string) error {
-	// Check if we're inside tmux
 	if os.Getenv("TMUX") == "" {
 		return fmt.Errorf("not inside a tmux session")
 	}
