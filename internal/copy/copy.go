@@ -56,10 +56,13 @@ func CopyFiles(patterns []string, srcDir, destDir string) error {
 		srcPath := filepath.Join(srcDir, relPath)
 		destPath := filepath.Join(destDir, relPath)
 
-		if err := copyPath(srcPath, destPath); err != nil {
+		copied, err := copyPath(srcPath, destPath)
+		if err != nil {
 			return fmt.Errorf("failed to copy %q: %w", relPath, err)
 		}
-		fmt.Printf("Copied: %s\n", relPath)
+		if copied {
+			fmt.Printf("Copied: %s\n", relPath)
+		}
 	}
 
 	return nil
@@ -86,15 +89,19 @@ func findMatches(baseDir, pattern string) ([]string, error) {
 	return matches, err
 }
 
-func copyPath(src, dest string) error {
-	// Skip if destination already exists (may have been copied as part of a parent directory)
-	if _, err := os.Lstat(dest); err == nil {
-		return nil
-	}
-
+// copyPath copies src to dest. Returns true if a copy was performed, false if skipped.
+func copyPath(src, dest string) (bool, error) {
 	info, err := os.Stat(src)
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	destInfo, destErr := os.Lstat(dest)
+	destExists := destErr == nil
+
+	// For files: skip if destination already exists (may have been copied as part of a parent directory)
+	if destExists && !info.IsDir() {
+		return false, nil
 	}
 
 	// Ensure parent directory exists
@@ -107,14 +114,19 @@ func copyPath(src, dest string) error {
 		} else {
 			// Parent is inaccessible (broken symlink or other issue), skip this copy.
 			// This happens when a symlink points to a not-yet-copied or external location.
-			return nil
+			return false, nil
 		}
 	}
 
 	if info.IsDir() {
-		return copyDir(src, dest)
+		// If destination directory already exists (e.g., from git checkout with tracked files),
+		// merge contents instead of skipping. This ensures untracked files get copied.
+		if destExists && destInfo.IsDir() {
+			return true, mergeDirContents(src, dest)
+		}
+		return true, copyDir(src, dest)
 	}
-	return copyFile(src, dest, info.Mode())
+	return true, copyFile(src, dest, info.Mode())
 }
 
 func copyDir(src, dest string) error {
@@ -136,6 +148,33 @@ func copyDir(src, dest string) error {
 	default:
 		// Other OSes: just use cp
 		return exec.Command("cp", "-Rp", src, dest).Run()
+	}
+}
+
+// mergeDirContents copies contents of src directory into existing dest directory.
+// Uses "src/." syntax to copy contents rather than the directory itself.
+func mergeDirContents(src, dest string) error {
+	// Use "src/." to copy contents of src into dest (POSIX standard)
+	srcContents := src + string(filepath.Separator) + "."
+
+	switch runtime.GOOS {
+	case "darwin":
+		// Try copy-on-write on macOS (APFS)
+		if err := exec.Command("cp", "-cRp", srcContents, dest).Run(); err == nil {
+			return nil
+		}
+		// Fall back to regular copy if -c fails
+		return exec.Command("cp", "-Rp", srcContents, dest).Run()
+	case "linux":
+		// Try copy-on-write on Btrfs/XFS
+		if err := exec.Command("cp", "-Rp", "--reflink=auto", srcContents, dest).Run(); err == nil {
+			return nil
+		}
+		// Fall back to regular copy if --reflink fails
+		return exec.Command("cp", "-Rp", srcContents, dest).Run()
+	default:
+		// Other OSes: just use cp
+		return exec.Command("cp", "-Rp", srcContents, dest).Run()
 	}
 }
 
