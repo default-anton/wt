@@ -3,10 +3,14 @@ package tui
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/junegunn/fzf/src/algo"
+	"github.com/junegunn/fzf/src/util"
 
 	"github.com/default-anton/wt/internal/styles"
 )
@@ -16,9 +20,17 @@ type Item struct {
 	Value string
 }
 
+// scoredItem holds an item with its fuzzy match score and positions.
+type scoredItem struct {
+	item      Item
+	score     int
+	positions []int // indices of matched characters in Label
+	origIndex int   // original index in items slice (for multi-select)
+}
+
 type selectorModel struct {
 	items       []Item
-	filtered    []Item
+	filtered    []scoredItem
 	cursor      int
 	selected    string
 	textInput   textinput.Model
@@ -26,6 +38,7 @@ type selectorModel struct {
 	multiSelect bool
 	checked     map[int]bool
 	cancelled   bool
+	slab        *util.Slab
 }
 
 func newSelectorModel(items []Item, multiSelect bool) selectorModel {
@@ -33,12 +46,24 @@ func newSelectorModel(items []Item, multiSelect bool) selectorModel {
 	ti.Placeholder = "Type to filter..."
 	ti.Focus()
 
+	// Convert initial items to scoredItems with no match positions
+	filtered := make([]scoredItem, len(items))
+	for i, item := range items {
+		filtered[i] = scoredItem{
+			item:      item,
+			score:     0,
+			positions: nil,
+			origIndex: i,
+		}
+	}
+
 	return selectorModel{
 		items:       items,
-		filtered:    items,
+		filtered:    filtered,
 		textInput:   ti,
 		multiSelect: multiSelect,
 		checked:     make(map[int]bool),
+		slab:        util.MakeSlab(100, 2048),
 	}
 }
 
@@ -61,7 +86,7 @@ func (m selectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.multiSelect {
 					// Return checked items
 				} else {
-					m.selected = m.filtered[m.cursor].Value
+					m.selected = m.filtered[m.cursor].item.Value
 				}
 			}
 			m.quitting = true
@@ -76,7 +101,7 @@ func (m selectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "tab":
 			if m.multiSelect && len(m.filtered) > 0 {
-				idx := m.findOriginalIndex(m.filtered[m.cursor])
+				idx := m.filtered[m.cursor].origIndex
 				m.checked[idx] = !m.checked[idx]
 				if m.cursor < len(m.filtered)-1 {
 					m.cursor++
@@ -94,42 +119,102 @@ func (m selectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *selectorModel) filterItems() {
-	query := strings.ToLower(m.textInput.Value())
+	query := m.textInput.Value()
+
+	// Empty query: show all items in original order with no highlights
 	if query == "" {
-		m.filtered = m.items
+		m.filtered = make([]scoredItem, len(m.items))
+		for i, item := range m.items {
+			m.filtered[i] = scoredItem{
+				item:      item,
+				score:     0,
+				positions: nil,
+				origIndex: i,
+			}
+		}
 		m.cursor = 0
 		return
 	}
 
-	var filtered []Item
-	for _, item := range m.items {
-		if fuzzyMatch(strings.ToLower(item.Label), query) {
-			filtered = append(filtered, item)
+	// Convert query to lowercase runes for case-insensitive matching
+	patternRunes := []rune(strings.ToLower(query))
+
+	var scored []scoredItem
+
+	for i, item := range m.items {
+		// Convert item label to util.Chars
+		chars := util.ToChars([]byte(item.Label))
+
+		// Call FuzzyMatchV2:
+		// - caseSensitive: false (case-insensitive matching)
+		// - normalize: true (normalize unicode)
+		// - forward: true (match left-to-right)
+		// - withPos: true (we need positions for highlighting)
+		result, positions := algo.FuzzyMatchV2(
+			false,        // caseSensitive
+			true,         // normalize
+			true,         // forward
+			&chars,       // input text
+			patternRunes, // pattern (already lowercase)
+			true,         // withPos (need positions for highlighting)
+			m.slab,       // reusable memory slab
+		)
+
+		// Score > 0 means we have a match
+		if result.Score > 0 {
+			var posSlice []int
+			if positions != nil {
+				posSlice = make([]int, len(*positions))
+				copy(posSlice, *positions)
+			}
+
+			scored = append(scored, scoredItem{
+				item:      item,
+				score:     result.Score,
+				positions: posSlice,
+				origIndex: i,
+			})
 		}
 	}
-	m.filtered = filtered
+
+	// Sort by score descending (best matches first)
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	m.filtered = scored
+
+	// Reset cursor, ensure it's within bounds
 	if m.cursor >= len(m.filtered) {
 		m.cursor = max(0, len(m.filtered)-1)
 	}
 }
 
-func (m selectorModel) findOriginalIndex(item Item) int {
-	for i, it := range m.items {
-		if it.Value == item.Value {
-			return i
-		}
+// renderHighlightedLabel renders a label with matched characters highlighted.
+// positions contains the indices of matched characters.
+// baseStyle is applied to non-matched characters.
+func renderHighlightedLabel(label string, positions []int, baseStyle, matchStyle lipgloss.Style) string {
+	if len(positions) == 0 {
+		return baseStyle.Render(label)
 	}
-	return -1
-}
 
-func fuzzyMatch(s, query string) bool {
-	qi := 0
-	for _, c := range s {
-		if qi < len(query) && byte(c) == query[qi] {
-			qi++
+	// Create a set for O(1) position lookup
+	posSet := make(map[int]bool, len(positions))
+	for _, p := range positions {
+		posSet[p] = true
+	}
+
+	var result strings.Builder
+	for i, r := range label {
+		char := string(r)
+		if posSet[i] {
+			result.WriteString(matchStyle.Render(char))
+		} else {
+			result.WriteString(baseStyle.Render(char))
 		}
 	}
-	return qi == len(query)
+
+	return result.String()
 }
 
 func (m selectorModel) View() string {
@@ -142,7 +227,7 @@ func (m selectorModel) View() string {
 	b.WriteString(m.textInput.View())
 	b.WriteString("\n\n")
 
-	for i, item := range m.filtered {
+	for i, scored := range m.filtered {
 		cursor := "  "
 		if i == m.cursor {
 			cursor = styles.CursorStyle.Render("> ")
@@ -150,19 +235,31 @@ func (m selectorModel) View() string {
 
 		check := ""
 		if m.multiSelect {
-			originalIdx := m.findOriginalIndex(item)
-			if m.checked[originalIdx] {
+			if m.checked[scored.origIndex] {
 				check = styles.BranchStyle.Render("[x] ")
 			} else {
 				check = styles.DimStyle.Render("[ ] ")
 			}
 		}
 
-		label := item.Label
+		// Render label with match highlighting
+		var label string
 		if i == m.cursor {
-			label = styles.BranchStyle.Render(label)
+			// Selected row: use BranchStyle as base, MatchStyle for matches
+			label = renderHighlightedLabel(
+				scored.item.Label,
+				scored.positions,
+				styles.BranchStyle,
+				styles.MatchStyle,
+			)
 		} else {
-			label = styles.NormalStyle.Render(label)
+			// Unselected row: use NormalStyle as base, MatchStyle for matches
+			label = renderHighlightedLabel(
+				scored.item.Label,
+				scored.positions,
+				styles.NormalStyle,
+				styles.MatchStyle,
+			)
 		}
 
 		b.WriteString(fmt.Sprintf("%s%s%s\n", cursor, check, label))

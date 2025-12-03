@@ -26,4 +26,7 @@ var (
 
 	// NormalStyle is the default style with no formatting
 	NormalStyle = lipgloss.NewStyle()
+
+	// MatchStyle is used for highlighting fuzzy match characters (green, bold)
+	MatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
 )
