@@ -1,8 +1,10 @@
 package copy
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -29,31 +31,26 @@ func TestFindMatches_GlobPatternWithTrailingSlash(t *testing.T) {
 	tests := []struct {
 		name     string
 		pattern  string
-		wantLen  int
 		wantDirs []string
 	}{
 		{
 			name:     "glob pattern with trailing slash",
 			pattern:  "**/.turbo/",
-			wantLen:  3,
 			wantDirs: []string{".turbo", "packages/app/.turbo", "packages/lib/.turbo"},
 		},
 		{
 			name:     "glob pattern without trailing slash",
 			pattern:  "**/.turbo",
-			wantLen:  3,
 			wantDirs: []string{".turbo", "packages/app/.turbo", "packages/lib/.turbo"},
 		},
 		{
-			name:     "literal pattern with trailing slash",
+			name:     "literal pattern with trailing slash (normalized)",
 			pattern:  ".turbo/",
-			wantLen:  1,
-			wantDirs: []string{".turbo/"},
+			wantDirs: []string{".turbo"},
 		},
 		{
 			name:     "literal pattern without trailing slash",
 			pattern:  ".turbo",
-			wantLen:  1,
 			wantDirs: []string{".turbo"},
 		},
 	}
@@ -64,8 +61,15 @@ func TestFindMatches_GlobPatternWithTrailingSlash(t *testing.T) {
 			if err != nil {
 				t.Fatalf("findMatches failed: %v", err)
 			}
-			if len(matches) != tt.wantLen {
-				t.Errorf("got %d matches, want %d. Matches: %v", len(matches), tt.wantLen, matches)
+			sort.Strings(matches)
+			sort.Strings(tt.wantDirs)
+			if len(matches) != len(tt.wantDirs) {
+				t.Fatalf("got %d matches, want %d. Matches: %v", len(matches), len(tt.wantDirs), matches)
+			}
+			for i := range matches {
+				if matches[i] != tt.wantDirs[i] {
+					t.Fatalf("mismatch at %d: got %q, want %q (matches=%v)", i, matches[i], tt.wantDirs[i], matches)
+				}
 			}
 		})
 	}
@@ -139,11 +143,11 @@ func TestFilterDescendants(t *testing.T) {
 		{
 			name: "filters nested node_modules under root",
 			matches: map[string]bool{
-				"node_modules":                    true,
-				"node_modules/foo/node_modules":   true,
-				"node_modules/bar/node_modules":   true,
-				"packages/app/node_modules":       true,
-				"packages/lib/node_modules":       true,
+				"node_modules":                  true,
+				"node_modules/foo/node_modules": true,
+				"node_modules/bar/node_modules": true,
+				"packages/app/node_modules":     true,
+				"packages/lib/node_modules":     true,
 			},
 			want: []string{
 				"node_modules",
@@ -169,6 +173,14 @@ func TestFilterDescendants(t *testing.T) {
 			},
 			want: []string{"node_modules"},
 		},
+		{
+			name: "trailing slash normalized",
+			matches: map[string]bool{
+				"node_modules/":                true,
+				"node_modules/foo/node_modules": true,
+			},
+			want: []string{"node_modules"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -180,7 +192,6 @@ func TestFilterDescendants(t *testing.T) {
 				return
 			}
 
-			// Convert to map for easier comparison (order may vary for same-length paths)
 			gotMap := make(map[string]bool)
 			for _, p := range got {
 				gotMap[p] = true
@@ -198,7 +209,6 @@ func TestCopyFiles_MergesIntoExistingDir(t *testing.T) {
 	srcDir := t.TempDir()
 	destDir := t.TempDir()
 
-	// Source has: .certs/untracked.pem
 	srcCerts := filepath.Join(srcDir, ".certs")
 	if err := os.MkdirAll(srcCerts, 0755); err != nil {
 		t.Fatal(err)
@@ -210,7 +220,6 @@ func TestCopyFiles_MergesIntoExistingDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Dest already has: .certs/tracked.pem (simulating git checkout)
 	destCerts := filepath.Join(destDir, ".certs")
 	if err := os.MkdirAll(destCerts, 0755); err != nil {
 		t.Fatal(err)
@@ -219,7 +228,6 @@ func TestCopyFiles_MergesIntoExistingDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Copy should merge, adding untracked.pem
 	if err := CopyFiles([]string{".certs"}, srcDir, destDir); err != nil {
 		t.Fatalf("CopyFiles failed: %v", err)
 	}
@@ -234,9 +242,6 @@ func TestCopyFiles_MergesIntoExistingDir(t *testing.T) {
 		}
 	}
 
-	// Verify tracked.pem was NOT overwritten (preserves dest content)
-	// Existing files should be kept to avoid macOS extended attribute issues
-	// and because git-tracked files are already correct from checkout
 	trackedPath := filepath.Join(destCerts, "tracked.pem")
 	content, err := os.ReadFile(trackedPath)
 	if err != nil {
@@ -244,5 +249,193 @@ func TestCopyFiles_MergesIntoExistingDir(t *testing.T) {
 	}
 	if string(content) != "dest-tracked" {
 		t.Errorf("tracked.pem should NOT be overwritten: got %q, want %q", string(content), "dest-tracked")
+	}
+}
+
+func TestCopyFiles_DestinationConflict_FileOverDir(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(srcDir, "conflict"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(destDir, "conflict"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyFiles([]string{"conflict"}, srcDir, destDir); err == nil {
+		t.Fatal("expected error due to destination conflict, got nil")
+	}
+}
+
+func TestCopyFiles_DoesNotFollowSymlink(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	// Create real dir and symlink to it.
+	if err := os.MkdirAll(filepath.Join(srcDir, "real"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "real", "file.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(srcDir, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyFiles([]string{"link"}, srcDir, destDir); err != nil {
+		t.Fatalf("CopyFiles failed: %v", err)
+	}
+
+	info, err := os.Lstat(filepath.Join(destDir, "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected dest/link to be a symlink, got mode=%v", info.Mode())
+	}
+
+	// Ensure we did not copy the symlink target as a directory/file.
+	if _, err := os.Stat(filepath.Join(destDir, "real")); !os.IsNotExist(err) {
+		t.Fatalf("expected dest/real to not exist, err=%v", err)
+	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	readDone := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		readDone <- b
+	}()
+
+	fn()
+	_ = w.Close()
+	b := <-readDone
+	_ = r.Close()
+	return string(b)
+}
+
+func TestCopyFiles_ProgressToStderr_DeterministicOrder(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(srcDir, "b.txt"), []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStderr(t, func() {
+		if err := CopyFiles([]string{"b.txt", "a.txt"}, srcDir, destDir); err != nil {
+			t.Fatalf("CopyFiles failed: %v", err)
+		}
+	})
+
+	want := "Copied: a.txt\nCopied: b.txt\n"
+	if out != want {
+		t.Fatalf("unexpected stderr.\nGot:\n%s\nWant:\n%s", out, want)
+	}
+}
+
+func TestCopyFiles_DestinationConflict_DirOverFile(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(srcDir, "conflict"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "conflict", "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destDir, "conflict"), []byte("dest"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyFiles([]string{"conflict"}, srcDir, destDir); err == nil {
+		t.Fatal("expected error due to destination conflict, got nil")
+	}
+}
+
+func TestCopyFiles_DirCopy_DoesNotFollowSymlink(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(srcDir, "real"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "real", "file.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDir, "d"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../real", filepath.Join(srcDir, "d", "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyFiles([]string{"d"}, srcDir, destDir); err != nil {
+		t.Fatalf("CopyFiles failed: %v", err)
+	}
+
+	info, err := os.Lstat(filepath.Join(destDir, "d", "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected dest/d/link to be a symlink, got mode=%v", info.Mode())
+	}
+
+	if _, err := os.Stat(filepath.Join(destDir, "d", "link", "file.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected dest/d/link/file.txt to not exist (symlink not followed), err=%v", err)
+	}
+}
+
+func TestCopyFiles_MergeDir_DoesNotFollowSymlink(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(srcDir, "real"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "real", "file.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDir, "d"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../real", filepath.Join(srcDir, "d", "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	// force mergeDirContents
+	if err := os.MkdirAll(filepath.Join(destDir, "d"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyFiles([]string{"d"}, srcDir, destDir); err != nil {
+		t.Fatalf("CopyFiles failed: %v", err)
+	}
+
+	info, err := os.Lstat(filepath.Join(destDir, "d", "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected dest/d/link to be a symlink, got mode=%v", info.Mode())
+	}
+
+	if _, err := os.Stat(filepath.Join(destDir, "d", "link", "file.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected dest/d/link/file.txt to not exist (symlink not followed), err=%v", err)
 	}
 }
