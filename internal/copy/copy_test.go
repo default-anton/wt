@@ -176,7 +176,7 @@ func TestFilterDescendants(t *testing.T) {
 		{
 			name: "trailing slash normalized",
 			matches: map[string]bool{
-				"node_modules/":                true,
+				"node_modules/":                 true,
 				"node_modules/foo/node_modules": true,
 			},
 			want: []string{"node_modules"},

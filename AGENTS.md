@@ -4,7 +4,7 @@
   - commands: `add`, `cd`, `rm`, `ls`, `init`, `shell-init`
 - Git plumbing (shell-out): `internal/git/worktree.go`
   - `GetRepoRoot`, `ListWorktrees`, `CreateWorktree`, `RemoveWorktree`, `BranchExists`
-  - integration tests: require `git` binary; run in temp repo
+- Integration tests: `integration/` (testscript)
 - Config: `internal/config/config.go`
   - config file: `.wt.toml`
   - note: `DefaultConfig().WorktreeDir` = `./worktrees`; sample/docs mention `.worktrees`
@@ -21,9 +21,8 @@
 
 ## Dev loop
 
-- build: `go build ./cmd/wt`
 - run: `go run ./cmd/wt --help`
-- tests: `go test ./...`
+- after changes: run `make fmt` (goimports -w), then `make check` (runs: tidy, goimports, vet, unit tests, integration tests, vulncheck, build)
 
 ## CI/releasing
 
@@ -31,9 +30,3 @@
 - docs: `docs/releasing.md`
 - no push/PR CI workflow today (only tag release)
 
-## Testing gotchas (integration)
-
-- Avoid interactive paths in headless CI:
-  - skip `wt cd` and interactive `wt rm` (needs `/dev/tty`)
-  - prefer non-interactive surfaces: `wt add --print-path`, `wt rm <path> -f`, `wt ls`, `wt init`
-- Hermetic integration tests: create temp git repo + optional local bare `origin` remote; no network required
