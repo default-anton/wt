@@ -95,6 +95,9 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(worktreeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create worktree directory: %w", err)
+	}
 
 	dirName := git.SanitizeBranchName(branch)
 	worktreePath := filepath.Join(worktreeDir, dirName)
@@ -373,7 +376,54 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
+	cfg := config.DefaultConfig()
+	if err := ensureGitignoreHasWorktreeDir(cfg.WorktreeDir); err != nil {
+		return err
+	}
+
 	fmt.Printf("Created %s\n", configPath)
+	return nil
+}
+
+func ensureGitignoreHasWorktreeDir(worktreeDir string) error {
+	entry := strings.TrimSpace(worktreeDir)
+	entry = strings.TrimPrefix(entry, "./")
+	if entry == "" {
+		return nil
+	}
+	if !strings.HasSuffix(entry, "/") {
+		entry += "/"
+	}
+
+	const gitignorePath = ".gitignore"
+
+	existing, err := os.ReadFile(gitignorePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: %w", gitignorePath, err)
+	}
+	if err == nil {
+		for _, line := range strings.Split(string(existing), "\n") {
+			line = strings.TrimSpace(line)
+			if line == entry || line == strings.TrimSuffix(entry, "/") {
+				return nil
+			}
+		}
+	}
+
+	f, err := os.OpenFile(gitignorePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open %s: %w", gitignorePath, err)
+	}
+	defer f.Close()
+
+	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return fmt.Errorf("failed to write %s: %w", gitignorePath, err)
+		}
+	}
+	if _, err := f.WriteString(entry + "\n"); err != nil {
+		return fmt.Errorf("failed to write %s: %w", gitignorePath, err)
+	}
 	return nil
 }
 
