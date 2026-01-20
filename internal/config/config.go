@@ -16,17 +16,17 @@ type Hook struct {
 }
 
 type Config struct {
-	BaseBranch        string   `toml:"base_branch"`
-	WorktreeDir       string   `toml:"worktree_dir"`
-	PreprocessScript  string   `toml:"preprocess_script"`
-	CopyPatterns      []string `toml:"copy_patterns"`
-	PostHooks         []Hook   `toml:"post_hooks"`
+	BaseBranch       string   `toml:"base_branch"`
+	WorktreeDir      string   `toml:"worktree_dir"`
+	PreprocessScript string   `toml:"preprocess_script"`
+	CopyPatterns     []string `toml:"copy_patterns"`
+	PostHooks        []Hook   `toml:"post_hooks"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		BaseBranch:   "main",
-		WorktreeDir:  "./worktrees",
+		WorktreeDir:  ".worktrees",
 		CopyPatterns: []string{},
 		PostHooks:    []Hook{},
 	}
