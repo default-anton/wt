@@ -1,0 +1,55 @@
+# wt add shows hook output in stderr and stops on failure
+
+cd repo
+
+exec git init -b main
+exec git config user.email test@example.com
+exec git config user.name test
+exec git add README.md
+exec git commit -m init
+
+# Test 1: Hook output visibility in stderr
+exec wt add feature1 --print-path
+stderr 'Running hook: echo-test'
+stderr 'hello from hook'
+stdout '.worktrees/feature1'
+
+# Test 2: Stop on failure
+cd ../repo-fail
+exec git init -b main
+exec git config user.email test@example.com
+exec git config user.name test
+exec git add README.md
+exec git commit -m init
+
+! exec wt add feature2 --print-path
+stderr 'Running hook: fail-hook'
+stderr 'hook "fail-hook" failed: exit status 1'
+! stderr 'Running hook: should-not-run'
+! exists .worktrees/feature2/.should-not-exist
+
+-- repo/README.md --
+hello
+
+-- repo-fail/README.md --
+hello
+
+-- repo/.wt.toml --
+base_branch = "main"
+worktree_dir = ".worktrees"
+
+[[post_hooks]]
+name = "echo-test"
+run = "echo \"hello from hook\""
+
+-- repo-fail/.wt.toml --
+base_branch = "main"
+worktree_dir = ".worktrees"
+
+[[post_hooks]]
+name = "fail-hook"
+run = "exit 1"
+
+[[post_hooks]]
+name = "should-not-run"
+run = "touch .should-not-exist"

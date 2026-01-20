@@ -10,6 +10,9 @@ import (
 )
 
 // Run executes the post-creation hooks in the given working directory.
+// Hooks are executed in order. If a hook fails, execution stops and an error is returned.
+// Output from hooks is redirected to os.Stderr to ensure it is visible even when
+// stdout is captured (e.g., in shell integrations).
 func Run(hooks []config.Hook, workDir string) error {
 	for _, hook := range hooks {
 		// Check if_exists condition
@@ -19,17 +22,17 @@ func Run(hooks []config.Hook, workDir string) error {
 				checkPath = filepath.Join(workDir, checkPath)
 			}
 			if _, err := os.Stat(checkPath); os.IsNotExist(err) {
-				fmt.Printf("Skipping hook %q: %s not found\n", hook.Name, hook.IfExists)
+				fmt.Fprintf(os.Stderr, "Skipping hook %q: %s not found\n", hook.Name, hook.IfExists)
 				continue
 			}
 		}
 
-		fmt.Printf("Running hook: %s\n", hook.Name)
+		fmt.Fprintf(os.Stderr, "Running hook: %s\n", hook.Name)
 
 		cmd := exec.Command("sh", "-c", hook.Run)
 		cmd.Dir = workDir
 		cmd.Env = os.Environ() // Inherit environment variables
-		cmd.Stdout = os.Stdout
+		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
 
