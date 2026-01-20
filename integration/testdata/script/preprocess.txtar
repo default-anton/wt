@@ -1,0 +1,41 @@
+# wt add uses preprocess_script to derive branch name
+
+cd repo
+
+exec git init -b main
+exec git config user.email test@example.com
+exec git config user.name test
+
+chmod 755 .wt/preprocess.sh
+
+exec git add README.md
+exec git commit -m init
+
+exec wt add 'https://jira.example.com/browse/PROJ-123-some' --print-path
+stderr 'Branch name: PROJ-123'
+stdout '.*\.worktrees/PROJ-123\n'
+
+exists .worktrees/PROJ-123
+
+exec git -C .worktrees/PROJ-123 branch --show-current
+stdout 'PROJ-123\n'
+
+-- repo/README.md --
+hello
+
+-- repo/.wt.toml --
+base_branch = "main"
+worktree_dir = ".worktrees"
+preprocess_script = ".wt/preprocess.sh"
+
+-- repo/.wt/preprocess.sh --
+#!/usr/bin/env bash
+set -euo pipefail
+
+INPUT="$1"
+
+if [[ "$INPUT" =~ (PROJ-[0-9]+) ]]; then
+  echo "${BASH_REMATCH[1]}"
+else
+  echo "$INPUT"
+fi

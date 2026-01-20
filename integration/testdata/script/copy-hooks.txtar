@@ -1,0 +1,38 @@
+# wt add copies configured files and runs hooks
+
+cd repo
+
+exec git init -b main
+exec git config user.email test@example.com
+exec git config user.name test
+
+exec git add README.md
+exec git commit -m init
+
+exec wt add feature --print-path
+stdout '.*\.worktrees/feature\n'
+
+exists .worktrees/feature/.env
+! exists .worktrees/feature/.env.example
+exists .worktrees/feature/.hook-ran
+
+-- repo/README.md --
+hello
+
+-- repo/.env --
+SECRET=1
+
+-- repo/.env.example --
+SECRET=
+
+-- repo/.wt.toml --
+base_branch = "main"
+worktree_dir = ".worktrees"
+copy_patterns = [
+  ".env*",
+  "!.env.example",
+]
+
+[[post_hooks]]
+name = "touch"
+run = "touch .hook-ran"

@@ -1,0 +1,16 @@
+# wt init creates config and updates .gitignore
+
+mkdir repo
+cd repo
+
+exec git init -b main
+exec git config user.email test@example.com
+exec git config user.name test
+
+exec wt init
+
+exists .wt.toml
+exists .gitignore
+
+grep 'worktree_dir = "\.worktrees"' .wt.toml
+grep '^\.worktrees/?$' .gitignore

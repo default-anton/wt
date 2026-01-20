@@ -1,0 +1,22 @@
+# wt add creates worktree + branch (no config)
+
+mkdir repo
+cd repo
+
+exec git init -b main
+exec git config user.email test@example.com
+exec git config user.name test
+
+exec git add README.md
+exec git commit -m init
+
+exec wt add feature --print-path
+stdout '.*\.worktrees/feature\n'
+
+exists .worktrees/feature
+
+exec git -C .worktrees/feature branch --show-current
+stdout 'feature\n'
+
+-- repo/README.md --
+hello
