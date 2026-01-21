@@ -2,7 +2,10 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,18 +114,21 @@ func TestCdPrintPathInteractive(t *testing.T) {
 	repo := setupRepo(t, baseEnv)
 	worktreePath := createWorktree(t, baseEnv, repo, "feature")
 
-	cmd := exec.Command(wtBinary(), "cd", "--print-path")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, wtBinary(), "cd", "--print-path")
 	cmd.Dir = repo
 	cmd.Env = baseEnv
 	sess := newPtySession(t, cmd)
 	defer sess.close()
 
+	sess.waitFor("feature", 5*time.Second)
 	sess.waitFor("ENTER to select", 5*time.Second)
 	sess.sendRaw("\r")
 	sess.sendRaw("\n")
-	sess.waitFor(filepath.Join(".worktrees", "feature"), 5*time.Second)
+	sess.waitFor(worktreePath, 5*time.Second)
 
-	if !strings.Contains(sess.output(), filepath.Join(".worktrees", "feature")) {
+	if !strings.Contains(sess.output(), worktreePath) {
 		t.Fatalf("expected output to include worktree path, output:\n%s", sess.output())
 	}
 	if worktreePath == "" {
@@ -153,7 +159,9 @@ func TestCdTmuxUsesNewWindow(t *testing.T) {
 		t.Fatalf("write fake tmux: %v", err)
 	}
 
-	cmd := exec.Command(wtBinary(), "cd", "--tmux")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, wtBinary(), "cd", "--tmux")
 	cmd.Dir = repo
 	cmd.Env = mergeEnv(baseEnv, map[string]string{
 		"PATH":           fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
@@ -164,6 +172,7 @@ func TestCdTmuxUsesNewWindow(t *testing.T) {
 	sess := newPtySession(t, cmd)
 	defer sess.close()
 
+	sess.waitFor("feature", 5*time.Second)
 	sess.waitFor("ENTER to select", 5*time.Second)
 	sess.sendRaw("\r")
 	sess.sendRaw("\n")
@@ -173,9 +182,10 @@ func TestCdTmuxUsesNewWindow(t *testing.T) {
 		t.Fatalf("read tmux args: %v", err)
 	}
 
-	want := filepath.Join(".worktrees", "feature")
-	if !strings.Contains(string(args), want) {
-		t.Fatalf("expected tmux args to include %q, got %q", want, strings.TrimSpace(string(args)))
+	want := fmt.Sprintf("new-window -c %s", worktreePath)
+	got := strings.TrimSpace(string(args))
+	if got != want {
+		t.Fatalf("expected tmux args %q, got %q", want, got)
 	}
 	if worktreePath == "" {
 		t.Fatalf("expected worktree path to be set")
@@ -205,6 +215,61 @@ func TestShellInitMatchesScripts(t *testing.T) {
 		if strings.TrimSpace(out) != strings.TrimSpace(string(want)) {
 			t.Fatalf("shell-init %s output drifted from %s", tc.shell, tc.path)
 		}
+	}
+}
+
+func TestShellWrapperOnlyInExpectedFiles(t *testing.T) {
+	repoRoot := repoRootDir(t)
+	allowed := map[string]bool{
+		"cmd/wt/main.go":                  true,
+		"shell/wt.bash":                   true,
+		"shell/wt.zsh":                    true,
+		"shell/wt.fish":                   true,
+		"integration/interactive_test.go": true,
+	}
+	markers := []string{"wt() {", "function wt"}
+
+	var unexpected []string
+	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			if name == "testdata" || name == "dist" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return relErr
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		content := string(data)
+		for _, marker := range markers {
+			if strings.Contains(content, marker) && !allowed[rel] {
+				if filepath.Base(rel) == "wt" {
+					return nil
+				}
+				unexpected = append(unexpected, rel)
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan repo: %v", err)
+	}
+	if len(unexpected) > 0 {
+		t.Fatalf("unexpected shell wrapper definitions: %s", strings.Join(unexpected, ", "))
 	}
 }
 
