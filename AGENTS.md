@@ -26,7 +26,5 @@
 
 ## CI/releasing
 
-- release: tag-driven; `.github/workflows/release.yaml` → GoReleaser (`.goreleaser.yaml`)
+- release: tag-driven
 - docs: `docs/releasing.md`
-- no push/PR CI workflow today (only tag release)
-
